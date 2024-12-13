@@ -27,7 +27,7 @@ class BERTEmbedding(torch.nn.Module):
         2. SegmentEmbedding : adding sentence segment info, (sent_A:1, sent_B:2)
         sum of all these features are output of BERTEmbedding
     """
-    def __init__(self, vocab_size, embed_size, seq_len, dropout = 0.1):
+    def __init__(self, vocab_size, embed_size, seq_len = 64, dropout = 0.1):
         super().__init__()
         self.embed_size = embed_size
         self.token = torch.nn.Embedding(vocab_size, embed_size, padding_idx=0) # 0 because pad token idx = 0, can be found with tokenizer.pad_token_id
@@ -56,7 +56,7 @@ class MultiHeadedAttention(torch.nn.Module):
     def forward(self, query, key, mask, value):
         """
         query, key, value of shape: (batch_size, max_len, d_model)
-        mask of shape: (batch_size, 1, 1, max_words)
+        mask of shape: (batch_size, 1, max_len, max_len)
         """
         # (batch_size, max_len, d_model)
         query = self.query(query)
@@ -79,7 +79,7 @@ class MultiHeadedAttention(torch.nn.Module):
         # (batch_size, h, max_len, max_len) * (batch_size, h, max_len, d_k) --> (batch_size, h, max_len, d_k)
         context = torch.matmul(weights,value)
         # (batch_size, h, max_len, d_k) --> (batch_size, max_len, h, d_k) --> (batch_size, max_len, d_model)
-        context = context.permute(0,2,1,3).contiguous().view(context.shape[0],context.shape[1],-1,  self.heads * self.d_k)
+        context = context.permute(0,2,1,3).contiguous().view(context.shape[0],-1,self.heads * self.d_k)
         return self.output_linear(context)
 
 class FeedForward(torch.nn.Module):
@@ -93,19 +93,20 @@ class FeedForward(torch.nn.Module):
     def forward(self, x):
         out = self.activation(self.fc1(x))
         out = self.fc2(self.dropout(out))
-        return out
+        return out # torch.Size([batch size, max len, d_model])
 
 class EncoderLayer(torch.nn.Module):
-    def __init__(self, d_model=768,heads = 12, feed_forward_hidden = 4*768):
+    def __init__(self, d_model=768,heads = 12, feed_forward_hidden = 4*768, dropout=0.1):
         super(EncoderLayer, self).__init__()
         self.layernorm = torch.nn.LayerNorm(d_model)
         self.self_multihead = MultiHeadedAttention(d_model, heads)
         self.feedforward = FeedForward(d_model,middle_dim=feed_forward_hidden)
+        self.dropout = torch.nn.Dropout(dropout)
     def forward(self, embeddings, mask):
         # embeddings: (batch_size, max_len, d_model)
         # encoder mask: (batch_size, 1, 1, max_len)
         # result: (batch_size, max_len, d_model)
-        interacted = self.dropout(self.self_multihead(embeddings, embeddings, embeddings, mask))
+        interacted = self.dropout(self.self_multihead(query = embeddings, key = embeddings, value = embeddings, mask = mask))
         # residual layer
         interacted = self.layernorm(interacted + embeddings)
         feed_forward_out = self.dropout(self.feedforward(interacted))
