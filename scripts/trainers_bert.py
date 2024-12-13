@@ -1,6 +1,6 @@
 from torch.optim import Adam
 import torch
-from optimizers import ScheduledOptim
+from utils.optimizers_bert import ScheduledOptim
 import tqdm
 
 class BERTTrainer:
